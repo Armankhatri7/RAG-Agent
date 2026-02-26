@@ -1,81 +1,72 @@
 import streamlit as st
-import time
-from main import app  # Import your compiled LangGraph workflow
+import requests
 
-# --- UI Configuration ---
+# 1. Configuration - Replace with your actual Vercel URL
+# Use the URL you just verified in the docs
+API_URL = "https://rag-agent-bay.vercel.app/api/chat"
+
+# 2. Page Setup
 st.set_page_config(
-    page_title="Agentic RAG Explorer",
+    page_title="RAG AI Agent",
     page_icon="🤖",
     layout="centered"
 )
 
-# Custom CSS for high-quality "Source" badges
-st.markdown("""
-    <style>
-    .pdf-tag {
-        background-color: #dcfce7;
-        color: #166534;
-        padding: 4px 10px;
-        border-radius: 15px;
-        font-size: 11px;
-        font-weight: bold;
-        border: 1px solid #bbf7d0;
-    }
-    .web-tag {
-        background-color: #dbeafe;
-        color: #1e40af;
-        padding: 4px 10px;
-        border-radius: 15px;
-        font-size: 11px;
-        font-weight: bold;
-        border: 1px solid #bfdbfe;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+def main():
+    st.title("📄 AI Research Assistant")
+    st.markdown("""
+    This agent can search through your **uploaded PDFs** in Supabase or 
+    browse the **Web** using Tavily to answer your questions.
+    """)
 
-st.title("🤖 Agentic RAG Explorer")
-st.caption("AI Agent | IIT Bombay | Gemini + Supabase + Tavily")
+    # 3. Chat Interface
+    # We use session state to clear the input after submission if needed
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
 
-# --- Initialize Session State ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+    # Display chat history
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+            if "source" in message:
+                st.caption(f"Source: {message['source']}")
 
-# --- Display Conversation ---
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"], unsafe_allow_html=True)
+    # 4. User Input
+    if prompt := st.chat_input("Ask me anything..."):
+        # Display user message
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-# --- Chat Input ---
-if prompt := st.chat_input("Ask about the technical PDF or the general web..."):
-    # Store and display user input
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+        # 5. Call Vercel Backend
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    response = requests.post(
+                        API_URL, 
+                        json={"query": prompt},
+                        timeout=30 # Vercel functions timeout at 10-60s depending on plan
+                    )
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        answer = data.get("answer", "I received an empty response.")
+                        source = data.get("source", "Unknown")
+                        
+                        st.markdown(answer)
+                        st.info(f"Context used: {source}")
+                        
+                        # Save to history
+                        st.session_state.messages.append({
+                            "role": "assistant", 
+                            "content": answer,
+                            "source": source
+                        })
+                    else:
+                        st.error(f"Backend Error ({response.status_code}): {response.text}")
+                
+                except requests.exceptions.RequestException as e:
+                    st.error(f"Connection Error: Could not reach the AI backend. {e}")
 
-    # --- Agent Routing & Response ---
-    with st.chat_message("assistant"):
-        ui_status = st.empty()
-        ui_status.markdown("🧠 *Deciding route and processing...*")
-        
-        try:
-            # Run the LangGraph agent
-            # It will choose between PDF Retrieval and Web Search automatically
-            result = app.invoke({"query": prompt})
-            
-            final_answer = result["answer"]
-            source_type = result.get("source", "UNKNOWN")
-            
-            # Create the styled badge for the UI
-            badge_class = "pdf-tag" if source_type == "PDF" else "web-tag"
-            source_html = f'<span class="{badge_class}">{source_type} SOURCE</span>'
-            
-            display_response = f"{source_html}\n\n{final_answer}"
-            
-            # Update the status with the actual answer
-            ui_status.markdown(display_response, unsafe_allow_html=True)
-            
-            # Save to history
-            st.session_state.messages.append({"role": "assistant", "content": display_response})
-            
-        except Exception as e:
-            ui_status.error(f"Execution Error: {str(e)}")
+if __name__ == "__main__":
+    main()
