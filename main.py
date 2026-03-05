@@ -55,10 +55,14 @@ def retrieve_pdf(state: AgentState):
 
 def web_search(state: AgentState):
     """General Web Search tool using Tavily"""
-    results = search_tool.invoke({"query": state['query']})
-    # Process results into a simple answer
-    content = "\n".join([r['content'] for r in results])
-    response = model.invoke(f"Based on these web results, answer the question: {state['query']}\n\nResults: {content}")
+    # .run() typically returns a formatted string of the top results
+    results_text = search_tool.run(state['query'])
+    
+    # Generate answer using Gemini
+    response = model.invoke(
+        f"Based on these web results, answer the question: {state['query']}\n\n"
+        f"Results: {results_text}"
+    )
     return {"answer": response.content}
 
 # 4. Define the Graph
